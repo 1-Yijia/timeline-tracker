@@ -1,0 +1,133 @@
+import { useEffect, useRef } from 'react'
+
+// ── Button ──────────────────────────────────────────────────────
+const btnBase = {
+  display: 'inline-flex', alignItems: 'center', gap: 6,
+  fontFamily: 'var(--sans)', fontWeight: 600, letterSpacing: '0.05em',
+  border: 'none', borderRadius: 6, cursor: 'pointer',
+  transition: 'all 0.15s', whiteSpace: 'nowrap',
+}
+const btnSizes = {
+  sm: { fontSize: 11, padding: '5px 10px' },
+  md: { fontSize: 12, padding: '8px 16px' },
+}
+const btnVariants = {
+  primary: { background: 'var(--accent)', color: '#fff' },
+  ghost:   { background: 'transparent', color: 'var(--text2)', border: '1px solid var(--border2)' },
+  danger:  { background: 'transparent', color: 'var(--red)',   border: '1px solid #ff6b6b44' },
+}
+
+export function Button({ variant = 'ghost', size = 'md', onClick, children, style, ...rest }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{ ...btnBase, ...btnSizes[size], ...btnVariants[variant], ...style }}
+      {...rest}
+    >
+      {children}
+    </button>
+  )
+}
+
+// ── Modal ───────────────────────────────────────────────────────
+export function Modal({ open, onClose, title, children, width = 500 }) {
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [open, onClose])
+
+  if (!open) return null
+
+  return (
+    <div
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+      style={{
+        position: 'fixed', inset: 0,
+        background: 'rgba(0,0,0,0.72)',
+        backdropFilter: 'blur(4px)',
+        zIndex: 200,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 16,
+      }}
+    >
+      <div
+        ref={ref}
+        style={{
+          background: 'var(--surface)',
+          border: '1px solid var(--border2)',
+          borderRadius: 12,
+          width, maxWidth: '95vw',
+          maxHeight: '90vh', overflowY: 'auto',
+          padding: 28,
+          position: 'relative',
+        }}
+      >
+        <button
+          onClick={onClose}
+          style={{
+            position: 'absolute', top: 20, right: 20,
+            background: 'none', border: 'none',
+            color: 'var(--text3)', fontSize: 20, cursor: 'pointer', lineHeight: 1,
+          }}
+        >✕</button>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 20, color: 'var(--text)' }}>
+          {title}
+        </div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+// ── FormField ───────────────────────────────────────────────────
+export function FormField({ label, children, style }) {
+  return (
+    <div style={{ marginBottom: 16, ...style }}>
+      <label style={{
+        display: 'block', fontSize: 11, fontWeight: 600,
+        letterSpacing: '0.08em', textTransform: 'uppercase',
+        color: 'var(--text3)', marginBottom: 6,
+      }}>
+        {label}
+      </label>
+      {children}
+    </div>
+  )
+}
+
+const inputStyle = {
+  width: '100%',
+  background: 'var(--bg)',
+  border: '1px solid var(--border2)',
+  borderRadius: 6,
+  color: 'var(--text)',
+  fontFamily: 'var(--sans)',
+  fontSize: 13,
+  padding: '9px 12px',
+  outline: 'none',
+}
+
+export function Input({ list, ...rest }) {
+  return <input style={inputStyle} list={list} {...rest} />
+}
+
+export function Select({ children, ...rest }) {
+  return (
+    <select style={{ ...inputStyle, cursor: 'pointer' }} {...rest}>
+      {children}
+    </select>
+  )
+}
+
+export function Textarea({ ...rest }) {
+  return (
+    <textarea
+      style={{ ...inputStyle, fontFamily: 'var(--mono)', fontSize: 12, resize: 'vertical', minHeight: 80 }}
+      {...rest}
+    />
+  )
+}
