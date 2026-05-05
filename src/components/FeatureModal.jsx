@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { STAGES, STAGE_LABELS } from '../data/constants'
-import { isTimelineRequired, validateRequiredTimeline } from '../hooks/useTimeline'
-import { Modal, FormField, Input, Select, Button } from './UI'
+import { isTimelineRequired, validateRequiredTimeline, computeDisplayStage } from '../hooks/useTimeline'
+import { Modal, ConfirmModal, FormField, Input, Select, Button } from './UI'
 
 const EMPTY = {
   product: '', market: '', name: '',
@@ -17,9 +17,8 @@ const EMPTY = {
 export function FeatureModal({ open, onClose, initialData, products, markets, onSave, onDelete }) {
   const isEdit = Boolean(initialData?.id)
   const [form, setForm] = useState(EMPTY)
+  const [confirm, setConfirm] = useState(null) // null | 'delete' | 'archive'
   const archived = Boolean(form.archived)
-
-  const needsTimeline = isTimelineRequired(form.stage)
 
   useEffect(() => {
     if (open) {
@@ -50,7 +49,13 @@ export function FeatureModal({ open, onClose, initialData, products, markets, on
 
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }))
 
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
   const timeline = buildTimelineFromForm(form)
+  // The stage shown in the board is always the computed value — keep the dropdown in sync
+  const effectiveStage = computeDisplayStage({ stage: form.stage, timeline }, today)
+  const needsTimeline = isTimelineRequired(effectiveStage)
   const timelineValidation = needsTimeline ? validateRequiredTimeline(timeline) : { ok: true, errors: [] }
 
   function toPayload(extra = {}) {
@@ -63,7 +68,7 @@ export function FeatureModal({ open, onClose, initialData, products, markets, on
       name: form.name,
       prd: form.prd,
       jira: form.jira,
-      stage: form.stage,
+      stage: effectiveStage,
       version: form.version,
       timeline,
       ...extra,
@@ -83,18 +88,48 @@ export function FeatureModal({ open, onClose, initialData, products, markets, on
     onClose()
   }
 
-  function handleDelete() {
-    if (!confirm('Delete this feature?')) return
+  function executeDelete() {
     onDelete(form.id)
     onClose()
   }
 
-  function handleArchiveToggle() {
+  function executeArchiveToggle() {
     onSave(toPayload({ archived: !archived }))
     onClose()
   }
 
+  const confirmConfig = {
+    delete: {
+      title: 'Delete feature?',
+      message: `"${form.name}" will be permanently removed from the tracker. If it was loaded from Google Sheets, it won't reappear on the next sync.`,
+      confirmLabel: 'Delete',
+      confirmVariant: 'danger',
+      onConfirm: executeDelete,
+    },
+    archive: {
+      title: archived ? 'Unarchive feature?' : 'Archive feature?',
+      message: archived
+        ? `"${form.name}" will be moved back to the main board.`
+        : `"${form.name}" will be hidden from the main board and moved to the archive. You can restore it any time.`,
+      confirmLabel: archived ? 'Unarchive' : 'Archive',
+      confirmVariant: 'ghost',
+      onConfirm: executeArchiveToggle,
+    },
+  }
+
   return (
+    <>
+    {confirm && (
+      <ConfirmModal
+        open
+        onClose={() => setConfirm(null)}
+        onConfirm={confirmConfig[confirm].onConfirm}
+        title={confirmConfig[confirm].title}
+        message={confirmConfig[confirm].message}
+        confirmLabel={confirmConfig[confirm].confirmLabel}
+        confirmVariant={confirmConfig[confirm].confirmVariant}
+      />
+    )}
     <Modal open={open} onClose={onClose} title={isEdit ? 'Edit Feature' : 'Add Feature'}>
       {/* Product + Market */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -150,11 +185,16 @@ export function FeatureModal({ open, onClose, initialData, products, markets, on
 
       {/* Stage */}
       <FormField label="Stage">
-        <Select value={form.stage} onChange={e => set('stage', e.target.value)}>
+        <Select value={effectiveStage} onChange={e => set('stage', e.target.value)}>
           {STAGES.map(s => (
             <option key={s} value={s}>{STAGE_LABELS[s]}</option>
           ))}
         </Select>
+        {effectiveStage !== form.stage && (
+          <div style={{ fontSize: 11, color: 'var(--amber)', marginTop: 4 }}>
+            Timeline advances this to {STAGE_LABELS[effectiveStage]}
+          </div>
+        )}
       </FormField>
 
       {/* Timeline — shown when stage is Scheduled or later */}
@@ -222,10 +262,10 @@ export function FeatureModal({ open, onClose, initialData, products, markets, on
         <div>
           {isEdit && (
             <div style={{ display: 'flex', gap: 8 }}>
-              <Button variant="ghost" size="sm" onClick={handleArchiveToggle}>
+              <Button variant="ghost" size="sm" onClick={() => setConfirm('archive')}>
                 {archived ? 'Unarchive' : 'Archive'}
               </Button>
-              <Button variant="danger" size="sm" onClick={handleDelete}>Delete</Button>
+              <Button variant="danger" size="sm" onClick={() => setConfirm('delete')}>Delete</Button>
             </div>
           )}
         </div>
@@ -235,6 +275,7 @@ export function FeatureModal({ open, onClose, initialData, products, markets, on
         </div>
       </div>
     </Modal>
+    </>
   )
 }
 

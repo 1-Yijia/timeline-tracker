@@ -1,16 +1,13 @@
 import { useState, useCallback } from 'react'
 import { STAGES, DEFAULT_ROWS, DEFAULT_FEATURES } from '../data/constants'
 
-const STORAGE_KEY = 'timeline-tracker-v2'
+const STORAGE_KEY = 'timeline-tracker-v3'
 const REQUIRED_TIMELINE_STAGES = ['dev', 'test', 'uat', 'live']
 
-function load() {
+function loadFromStorage() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      return migrateState(parsed)
-    }
+    if (raw) return migrateState(JSON.parse(raw))
   } catch {}
   return migrateState({ rows: DEFAULT_ROWS, features: DEFAULT_FEATURES })
 }
@@ -156,7 +153,7 @@ export function timelineToText(timeline) {
 
 // ── Hook ────────────────────────────────────────────────────────
 export function useTimeline() {
-  const [state, setState] = useState(load)
+  const [state, setState] = useState(loadFromStorage)
 
   const commit = useCallback((next) => {
     setState(next)
