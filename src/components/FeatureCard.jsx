@@ -47,20 +47,22 @@ export function FeatureCard({ feature, displayStage, onDelete, onArchive }) {
         message="Stage and timeline changes can only be made in the Google Sheet. Sync after updating."
       />
 
-      {/* Outer wrapper captures hover — overlay lives inside so mouse never leaves */}
+      {/* Flex row: card content + action buttons side by side, all inside hover zone */}
       <div
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         onClick={() => setShowInfo(true)}
-        style={{ position: 'relative', cursor: 'pointer' }}
+        style={{ display: 'flex', alignItems: 'stretch', gap: 4, cursor: 'pointer' }}
       >
         {/* Card content */}
         <div style={{
+          flex: 1,
           background: 'var(--surface)',
           border: `1px solid ${hovered ? 'var(--border2)' : 'var(--border)'}`,
           borderRadius: 4,
           padding: '6px 8px',
           transition: 'border-color 0.15s',
+          minWidth: 0,
         }}>
           <div style={{ fontSize: 11.5, fontWeight: 650, color: 'var(--text)', lineHeight: 1.25, marginBottom: 3 }}>
             {feature.name}
@@ -111,38 +113,34 @@ export function FeatureCard({ feature, displayStage, onDelete, onArchive }) {
           )}
         </div>
 
-        {/* Semi-transparent overlay with action buttons — inside wrapper, no mouseLeave gap */}
-        {hovered && (
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              position: 'absolute',
-              inset: 0,
-              borderRadius: 4,
-              background: 'rgba(0,0,0,0.78)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 8,
-              zIndex: 10,
-            }}
+        {/* Action buttons — flex sibling, inside hover zone so mouse can move to them without hiding */}
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            gap: 4,
+            visibility: hovered ? 'visible' : 'hidden',
+            width: 28,
+            flexShrink: 0,
+          }}
+        >
+          <button
+            onClick={() => setConfirm('archive')}
+            title={archived ? 'Unarchive' : 'Archive'}
+            style={actionBtn(false)}
           >
-            <button
-              onClick={() => setConfirm('archive')}
-              title={archived ? 'Unarchive' : 'Archive'}
-              style={actionBtn(false)}
-            >
-              <FolderIcon size={12} />
-            </button>
-            <button
-              onClick={() => setConfirm('delete')}
-              title="Delete"
-              style={actionBtn(true)}
-            >
-              ✕
-            </button>
-          </div>
-        )}
+            <FolderIcon size={12} />
+          </button>
+          <button
+            onClick={() => setConfirm('delete')}
+            title="Delete"
+            style={actionBtn(true)}
+          >
+            ✕
+          </button>
+        </div>
       </div>
     </>
   )
@@ -150,19 +148,22 @@ export function FeatureCard({ feature, displayStage, onDelete, onArchive }) {
 
 function actionBtn(isDanger) {
   return {
-    background: 'var(--bg)',
+    background: 'var(--surface)',
     border: `1px solid ${isDanger ? '#c23a3a55' : 'var(--border2)'}`,
     borderRadius: 4,
     color: isDanger ? 'var(--red)' : 'var(--text2)',
     fontSize: 11,
     fontWeight: 700,
     cursor: 'pointer',
-    padding: '5px 10px',
+    padding: '4px 8px',
     lineHeight: 1,
     fontFamily: 'var(--mono)',
     display: 'flex',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 4,
+    width: 28,
+    height: 24,
   }
 }
 
