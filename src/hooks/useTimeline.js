@@ -1,7 +1,13 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { STAGES, DEFAULT_ROWS, DEFAULT_FEATURES } from '../data/constants'
+import { initFromSheets, recordSheetDeletion, recordArchive } from '../data/sheets'
 
 const STORAGE_KEY = 'timeline-tracker-v3'
+const SYNC_TS_KEY = 'timeline-tracker-synced-at'
+
+function loadSyncedAt() {
+  try { return Number(localStorage.getItem(SYNC_TS_KEY)) || null } catch { return null }
+}
 const REQUIRED_TIMELINE_STAGES = ['dev', 'test', 'uat', 'live']
 
 function loadFromStorage() {
@@ -154,11 +160,36 @@ export function timelineToText(timeline) {
 // ── Hook ────────────────────────────────────────────────────────
 export function useTimeline() {
   const [state, setState] = useState(loadFromStorage)
+  const [loading, setLoading] = useState(false)
+  const [syncError, setSyncError] = useState(null)
+  const [lastSyncedAt, setLastSyncedAt] = useState(loadSyncedAt)
 
   const commit = useCallback((next) => {
     setState(next)
     save(next)
   }, [])
+
+  const syncFromSheets = useCallback(async () => {
+    setLoading(true)
+    setSyncError(null)
+    try {
+      const d = await initFromSheets()
+      const next = migrateState(d)
+      save(next)
+      setState(next)
+      const ts = Date.now()
+      localStorage.setItem(SYNC_TS_KEY, String(ts))
+      setLastSyncedAt(ts)
+    } catch (err) {
+      setSyncError(err.message || 'Sync failed')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    syncFromSheets()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -200,10 +231,12 @@ export function useTimeline() {
   }, [state, commit])
 
   const deleteFeature = useCallback((id) => {
+    recordSheetDeletion(id)
     commit({ ...state, features: state.features.filter(f => f.id !== id) })
   }, [state, commit])
 
   const setArchived = useCallback((id, archived) => {
+    recordArchive(id, Boolean(archived))
     commit({
       ...state,
       features: state.features.map(f => f.id === id ? { ...f, archived: Boolean(archived) } : f),
@@ -238,5 +271,9 @@ export function useTimeline() {
     setArchived,
     moveFeature,
     addRow,
+    loading,
+    syncError,
+    lastSyncedAt,
+    syncFromSheets,
   }
 }

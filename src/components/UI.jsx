@@ -1,5 +1,13 @@
 import { useEffect, useRef } from 'react'
 
+export function FolderIcon({ size = 13 }) {
+  return (
+    <svg width={size} height={size * 0.85} viewBox="0 0 14 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round">
+      <path d="M1 2.5C1 1.67 1.67 1 2.5 1H5L6.5 2.5H11.5C12.33 2.5 13 3.17 13 4V9.5C13 10.33 12.33 11 11.5 11H2.5C1.67 11 1 10.33 1 9.5V2.5Z" />
+    </svg>
+  )
+}
+
 // ── Button ──────────────────────────────────────────────────────
 const btnBase = {
   display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -78,6 +86,46 @@ export function Modal({ open, onClose, title, children, width = 500 }) {
           {title}
         </div>
         {children}
+      </div>
+    </div>
+  )
+}
+
+// ── InfoModal ───────────────────────────────────────────────────
+export function InfoModal({ open, onClose, message }) {
+  useEffect(() => {
+    if (!open) return
+    const handler = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [open, onClose])
+
+  if (!open) return null
+
+  return (
+    <div
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+      style={{
+        position: 'fixed', inset: 0,
+        background: 'rgba(0,0,0,0.55)',
+        zIndex: 300,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 16,
+      }}
+    >
+      <div style={{
+        background: 'var(--surface)',
+        border: '1px solid var(--border2)',
+        borderRadius: 12,
+        width: 340, maxWidth: '95vw',
+        padding: '24px 28px',
+      }}>
+        <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 20, lineHeight: 1.6 }}>
+          {message}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button variant="ghost" size="sm" onClick={onClose}>Got it</Button>
+        </div>
       </div>
     </div>
   )

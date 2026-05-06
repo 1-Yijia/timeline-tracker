@@ -1,15 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { STAGES, STAGE_LABELS } from './data/constants'
 import { useTimeline, computeDisplayStage } from './hooks/useTimeline'
 import { FeatureCard } from './components/FeatureCard'
-import { FeatureModal } from './components/FeatureModal'
-import { AddRowModal } from './components/AddRowModal'
-import { Button, Input } from './components/UI'
-import { ThemeModal, PASTEL_PALETTE } from './components/ThemeModal'
+import { Button, Input, FolderIcon } from './components/UI'
 
 const COL_PRODUCT = 70
 const COL_MARKET = 74
-const THEME_KEY = 'timeline-tracker-theme-v1'
 const STAGE_COL_MIN = 74
 const STAGE_COL_MAX = 140
 const EXTRA_STAGES = ['live-testing', 'greyscale']
@@ -17,45 +13,15 @@ const BOARD_STAGES = STAGES.filter(s => !EXTRA_STAGES.includes(s))
 
 export default function App() {
   const {
-    rows, features, today, products, markets,
-    upsertFeature, deleteFeature, setArchived, moveFeature, addRow,
+    rows, features, today,
+    deleteFeature, setArchived,
+    loading, syncError, lastSyncedAt, syncFromSheets,
   } = useTimeline()
 
-  const [featureModal, setFeatureModal] = useState({ open: false, data: null })
-  const [rowModal, setRowModal] = useState(false)
-  const [themeModal, setThemeModal] = useState(false)
   const [stageColWidth, setStageColWidth] = useState(STAGE_COL_MAX)
   const [activeTab, setActiveTab] = useState('active') // 'active' | 'archived'
   const [archiveQuery, setArchiveQuery] = useState('')
   const [archiveSort, setArchiveSort] = useState('desc') // 'asc' | 'desc'
-
-  const [themeByRowKey, setThemeByRowKey] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(THEME_KEY) || '{}') } catch { return {} }
-  })
-
-  const uniqueRowKeys = useMemo(() => {
-    const seen = new Set()
-    for (const r of rows) seen.add(rowKey(r.product, r.market))
-    return [...seen]
-  }, [rows])
-
-  // Ensure every (product, market) has a colour assignment
-  useEffect(() => {
-    setThemeByRowKey(prev => {
-      let changed = false
-      const next = { ...prev }
-      uniqueRowKeys.forEach((k, idx) => {
-        if (next[k]) return
-        next[k] = PASTEL_PALETTE[idx % PASTEL_PALETTE.length].id
-        changed = true
-      })
-      return changed ? next : prev
-    })
-  }, [uniqueRowKeys])
-
-  useEffect(() => {
-    try { localStorage.setItem(THEME_KEY, JSON.stringify(themeByRowKey)) } catch { /* ignore */ }
-  }, [themeByRowKey])
 
   // Fit all stage columns into the viewport (no horizontal scrolling)
   useEffect(() => {
@@ -69,20 +35,6 @@ export default function App() {
     window.addEventListener('resize', recompute)
     return () => window.removeEventListener('resize', recompute)
   }, [])
-
-  // Open edit modal for an existing feature
-  function openEdit(id) {
-    const f = features.find(x => x.id === id)
-    if (f) setFeatureModal({ open: true, data: f })
-  }
-
-  // Open add modal pre-filled with product/market/stage context
-  function openAdd(product, market, stage) {
-    setFeatureModal({
-      open: true,
-      data: { product: product || '', market: market || '', stage: stage || 'pipeline' },
-    })
-  }
 
   const todayLabel = today.toLocaleDateString('en-GB', {
     weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
@@ -129,19 +81,51 @@ export default function App() {
             {todayLabel}
           </span>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Data source indicator */}
+          <span style={{
+            fontFamily: 'var(--mono)', fontSize: 10,
+            color: syncError ? 'var(--red)' : 'var(--text3)',
+            whiteSpace: 'nowrap',
+          }}>
+            {syncError
+              ? 'Sync failed'
+              : lastSyncedAt
+                ? `Synced ${new Date(lastSyncedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`
+                : 'Local data'}
+          </span>
+          <Button variant="ghost" size="sm" onClick={syncFromSheets} disabled={loading}>
+            {loading ? 'Syncing…' : 'Sync'}
+          </Button>
           <Button
             variant={activeTab === 'archived' ? 'primary' : 'ghost'}
             size="sm"
             onClick={() => setActiveTab(activeTab === 'archived' ? 'active' : 'archived')}
           >
-            Archive
+            <FolderIcon size={12} /> Archive
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => setThemeModal(true)}>Theme</Button>
-          <Button variant="ghost" size="sm" onClick={() => setRowModal(true)}>+ Row</Button>
-          <Button variant="primary" size="sm" onClick={() => openAdd(null, null, null)}>+ Feature</Button>
         </div>
       </header>
+
+      {syncError && (
+        <div style={{
+          background: '#c23a3a18',
+          borderBottom: '1px solid #c23a3a44',
+          padding: '8px 28px',
+          fontSize: 12,
+          color: 'var(--red)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          flex: '0 0 auto',
+        }}>
+          <span>{syncError}</span>
+          <button
+            onClick={() => syncFromSheets()}
+            style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 12, fontFamily: 'var(--sans)', textDecoration: 'underline', padding: 0 }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {showArchived ? (
         <ArchiveView
@@ -150,7 +134,6 @@ export default function App() {
           setQuery={setArchiveQuery}
           sortDir={archiveSort}
           setSortDir={setArchiveSort}
-          onOpen={openEdit}
         />
       ) : (
         <div style={{ padding: '0 0 24px', overflowY: 'auto', overflowX: 'hidden', flex: '1 1 auto', background: 'var(--bg)' }}>
@@ -176,28 +159,21 @@ export default function App() {
                 const showProduct = row.product !== lastProduct
                 lastProduct = row.product
 
-                const rowColors = getRowColors(row.product, row.market, themeByRowKey)
-
                 return (
                   <tr key={`${row.product}-${row.market}-${ri}`}>
-                    {/* Product cell */}
-                    <td style={{ ...tdLabel, left: 0, zIndex: 40, ...rowColors.labelCell }}>
+                    <td style={{ ...tdLabel, left: 0, zIndex: 40, background: 'var(--surface2)', borderRight: '1px solid var(--border)' }}>
                       {showProduct && (
                         <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', lineHeight: 1.15 }}>
                           {row.product}
                         </span>
                       )}
                     </td>
-
-                    {/* Market cell */}
-                    <td style={{ ...tdLabel, left: COL_PRODUCT, zIndex: 40, borderRight: '1px solid var(--border2)', ...rowColors.labelCell }}>
+                    <td style={{ ...tdLabel, left: COL_PRODUCT, zIndex: 40, background: 'var(--surface2)', borderRight: '1px solid var(--border2)' }}>
                       <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)', lineHeight: 1.15 }}>
                         {row.market}
                       </span>
                     </td>
-
-                    {/* Stage cells */}
-                  {BOARD_STAGES.map(stage => {
+                    {BOARD_STAGES.map(stage => {
                       const cellFeatures = featuresAtView(row.product, row.market, stage)
                       return (
                         <td key={stage} style={tdCell}>
@@ -207,14 +183,10 @@ export default function App() {
                                 key={f.id}
                                 feature={f}
                                 displayStage={computeDisplayStage(f, today)}
-                                onEdit={openEdit}
-                                onMove={moveFeature}
+                                onDelete={deleteFeature}
                                 onArchive={setArchived}
-                                rowAccent={rowColors.accent}
                               />
                             ))}
-                            {/* Add button */}
-                            <AddButton onClick={() => openAdd(row.product, row.market, stage)} />
                           </div>
                         </td>
                       )
@@ -254,67 +226,36 @@ export default function App() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, ri) => {
-                const rowColors = getRowColors(row.product, row.market, themeByRowKey)
-                return (
-                  <tr key={`post-${row.product}-${row.market}-${ri}`}>
-                    <td style={{ ...tdLabel, left: 0, zIndex: 40, ...rowColors.labelCell }} />
-                    <td style={{ ...tdLabel, left: COL_PRODUCT, zIndex: 40, borderRight: '1px solid var(--border2)', ...rowColors.labelCell }} />
-                    {EXTRA_STAGES.map(stage => {
-                      const cellFeatures = featuresAtView(row.product, row.market, stage)
-                      return (
-                        <td key={stage} style={tdCell}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            {cellFeatures.map(f => (
-                              <FeatureCard
-                                key={f.id}
-                                feature={f}
-                                displayStage={computeDisplayStage(f, today)}
-                                onEdit={openEdit}
-                                onMove={moveFeature}
-                                onArchive={setArchived}
-                                rowAccent={rowColors.accent}
-                              />
-                            ))}
-                            <AddButton onClick={() => openAdd(row.product, row.market, stage)} />
-                          </div>
-                        </td>
-                      )
-                    })}
-                  </tr>
-                )
-              })}
+              {rows.map((row, ri) => (
+                <tr key={`post-${row.product}-${row.market}-${ri}`}>
+                  <td style={{ ...tdLabel, left: 0, zIndex: 40, background: 'var(--surface2)', borderRight: '1px solid var(--border)' }} />
+                  <td style={{ ...tdLabel, left: COL_PRODUCT, zIndex: 40, background: 'var(--surface2)', borderRight: '1px solid var(--border2)' }} />
+                  {EXTRA_STAGES.map(stage => {
+                    const cellFeatures = featuresAtView(row.product, row.market, stage)
+                    return (
+                      <td key={stage} style={tdCell}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {cellFeatures.map(f => (
+                            <FeatureCard
+                              key={f.id}
+                              feature={f}
+                              displayStage={computeDisplayStage(f, today)}
+                              onDelete={deleteFeature}
+                              onArchive={setArchived}
+                            />
+                          ))}
+                        </div>
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
         </div>
       )}
 
-      {/* ── MODALS ── */}
-      <FeatureModal
-        open={featureModal.open}
-        onClose={() => setFeatureModal({ open: false, data: null })}
-        initialData={featureModal.data}
-        products={products}
-        markets={markets}
-        onSave={upsertFeature}
-        onDelete={deleteFeature}
-      />
-
-      <AddRowModal
-        open={rowModal}
-        onClose={() => setRowModal(false)}
-        products={products}
-        onSave={addRow}
-      />
-
-      <ThemeModal
-        open={themeModal}
-        onClose={() => setThemeModal(false)}
-        rows={rows}
-        themeByRowKey={themeByRowKey}
-        setThemeByRowKey={setThemeByRowKey}
-      />
     </div>
   )
 }
@@ -508,69 +449,3 @@ const tdCell = {
   minWidth: 0,
 }
 
-function AddButton({ onClick }) {
-  const [hovered, setHovered] = useState(false)
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 4,
-        fontFamily: 'var(--mono)', fontSize: 10,
-        color: hovered ? 'var(--text2)' : 'var(--text3)',
-        background: 'none',
-        border: hovered ? `1px dashed var(--text3)` : '0px solid transparent',
-        borderRadius: 5, padding: '5px 8px',
-        cursor: 'pointer', width: '100%',
-        transition: 'all 0.15s',
-        opacity: hovered ? 1 : 0,
-        maxHeight: hovered ? 28 : 0,
-        paddingTop: hovered ? 5 : 0,
-        paddingBottom: hovered ? 5 : 0,
-        marginTop: hovered ? 2 : 0,
-        overflow: 'hidden',
-      }}
-    >
-      <span style={{ fontSize: 14, lineHeight: 1 }}>+</span> add
-    </button>
-  )
-}
-
-function rowKey(product, market) {
-  return `${product}||${market}`
-}
-
-function hexToHsl(hex) {
-  const c = hex.replace('#', '')
-  const r = parseInt(c.slice(0, 2), 16) / 255
-  const g = parseInt(c.slice(2, 4), 16) / 255
-  const b = parseInt(c.slice(4, 6), 16) / 255
-
-  const max = Math.max(r, g, b), min = Math.min(r, g, b)
-  let h = 0, s = 0
-  const l = (max + min) / 2
-
-  if (max !== min) {
-    const d = max - min
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
-    switch (max) {
-      case r: h = (g - b) / d + (g < b ? 6 : 0); break
-      case g: h = (b - r) / d + 2; break
-      default: h = (r - g) / d + 4
-    }
-    h /= 6
-  }
-
-  return { h: Math.round(h * 360), s: Math.round(s * 100), l: Math.round(l * 100) }
-}
-
-function getRowColors(product, market, themeByRowKey) {
-  return {
-    labelCell: {
-      background: 'var(--surface2)',
-      borderRight: '1px solid var(--border)',
-    },
-    accent: 'transparent',
-  }
-}

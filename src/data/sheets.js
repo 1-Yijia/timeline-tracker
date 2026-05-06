@@ -3,18 +3,12 @@ const GID = '1455044719'
 
 export const SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`
 
+// Only pipeline/frf/prd are valid sheet-sourced stages.
+// Timed stages (dev/test/uat/live) are inferred from timeline dates at runtime.
 const STAGE_MAP = {
   pipeline: 'pipeline',
   frf: 'frf',
   prd: 'prd',
-  scheduled: 'scheduled',
-  dev: 'dev',
-  qa: 'test',
-  test: 'test',
-  uat: 'uat',
-  live: 'live',
-  'live-testing': 'live-testing',
-  greyscale: 'greyscale',
 }
 
 function parseCSVLine(line) {
@@ -96,9 +90,14 @@ export function parseSheetCSV(csvText) {
 }
 
 const DELETED_KEY = 'timeline-tracker-deleted-sheet-ids'
+const ARCHIVED_KEY = 'timeline-tracker-archived-ids'
 
 function getDeletedSheetIds() {
   try { return JSON.parse(localStorage.getItem(DELETED_KEY) || '[]') } catch { return [] }
+}
+
+function getArchivedIds() {
+  try { return JSON.parse(localStorage.getItem(ARCHIVED_KEY) || '[]') } catch { return [] }
 }
 
 export function recordSheetDeletion(featureId) {
@@ -111,11 +110,29 @@ export function recordSheetDeletion(featureId) {
   } catch {}
 }
 
+export function recordArchive(featureId, archived) {
+  try {
+    const ids = getArchivedIds()
+    const next = archived
+      ? [...new Set([...ids, featureId])]
+      : ids.filter(id => id !== featureId)
+    localStorage.setItem(ARCHIVED_KEY, JSON.stringify(next))
+  } catch {}
+}
+
+function applyArchivedIds(features) {
+  const archivedSet = new Set(getArchivedIds())
+  return features.map(f => ({ ...f, archived: archivedSet.has(f.id) }))
+}
+
 export async function initFromSheets() {
-  const res = await fetch(SHEET_CSV_URL)
+  const res = await fetch(SHEET_CSV_URL, { cache: 'no-store' })
   if (!res.ok) throw new Error(`Sheet fetch failed: HTTP ${res.status}`)
   const text = await res.text()
+  if (text.trimStart().startsWith('<')) {
+    throw new Error('Sheet returned an HTML page — make sure sharing is set to "Anyone with the link can view".')
+  }
   const { rows, features } = parseSheetCSV(text)
   const deleted = getDeletedSheetIds()
-  return { rows, features: features.filter(f => !deleted.includes(f.id)) }
+  return { rows, features: applyArchivedIds(features.filter(f => !deleted.includes(f.id))) }
 }

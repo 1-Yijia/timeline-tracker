@@ -1,159 +1,173 @@
 import { useState } from 'react'
-import { STAGES, STAGE_COLORS } from '../data/constants'
-import { getActiveRangeLabel, hasTimelineError } from '../hooks/useTimeline'
-import { Button } from './UI'
+import { getActiveRangeLabel } from '../hooks/useTimeline'
+import { ConfirmModal, InfoModal, FolderIcon } from './UI'
 
-export function FeatureCard({ feature, displayStage, onEdit, onMove, onArchive, rowAccent }) {
+export function FeatureCard({ feature, displayStage, onDelete, onArchive }) {
   const [hovered, setHovered] = useState(false)
-  const curIdx = STAGES.indexOf(displayStage)
-  const accentColor = STAGE_COLORS[displayStage] || 'var(--text3)'
+  const [confirm, setConfirm] = useState(null) // null | 'delete' | 'archive'
+  const [showInfo, setShowInfo] = useState(false)
   const rangeLabel = getActiveRangeLabel(feature, displayStage)
-  const showTimelineError = hasTimelineError(feature)
   const archived = Boolean(feature.archived)
 
+  const confirmConfig = {
+    delete: {
+      title: 'Delete feature?',
+      message: `"${feature.name}" will be permanently removed. If it came from Google Sheets, it won't reappear on the next sync.`,
+      confirmLabel: 'Delete',
+      confirmVariant: 'danger',
+      onConfirm: () => onDelete(feature.id),
+    },
+    archive: {
+      title: archived ? 'Unarchive feature?' : 'Archive feature?',
+      message: archived
+        ? `"${feature.name}" will be moved back to the main board.`
+        : `"${feature.name}" will be hidden from the main board. You can restore it from the Archive view.`,
+      confirmLabel: archived ? 'Unarchive' : 'Archive',
+      confirmVariant: 'ghost',
+      onConfirm: () => onArchive(feature.id, !archived),
+    },
+  }
+
   return (
-    <div
-      onClick={() => onEdit(feature.id)}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        background: 'var(--surface)',
-        border: `1px solid ${hovered ? 'var(--border2)' : 'var(--border)'}`,
-        borderRadius: 4,
-        padding: '6px 8px',
-        cursor: 'pointer',
-        transition: 'border-color 0.15s',
-        position: 'relative',
-        overflow: 'hidden',
-      }}
-    >
-      {showTimelineError && (
-        <div
-          title="Missing/invalid timeline (required for Scheduled+)"
-          style={{
-            position: 'absolute',
-            top: 6,
-            right: 6,
-            width: 16,
-            height: 16,
-            borderRadius: 999,
-            background: '#c23a3a',
-            color: '#fff',
-            fontSize: 11,
-            fontWeight: 800,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 1px 0 rgba(0,0,0,0.10)',
-          }}
-        >
-          !
-        </div>
+    <>
+      {confirm && (
+        <ConfirmModal
+          open
+          onClose={() => setConfirm(null)}
+          onConfirm={() => { confirmConfig[confirm].onConfirm(); setConfirm(null) }}
+          title={confirmConfig[confirm].title}
+          message={confirmConfig[confirm].message}
+          confirmLabel={confirmConfig[confirm].confirmLabel}
+          confirmVariant={confirmConfig[confirm].confirmVariant}
+        />
       )}
-      {/* Feature name */}
-      <div style={{ fontSize: 11.5, fontWeight: 650, color: 'var(--text)', lineHeight: 1.25, marginBottom: 3 }}>
-        {feature.name}
-      </div>
+      <InfoModal
+        open={showInfo}
+        onClose={() => setShowInfo(false)}
+        message="Stage and timeline changes can only be made in the Google Sheet. Sync after updating."
+      />
 
-      {/* Links */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
-        {feature.prd && (
-          <a
-            href={feature.prd}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={e => e.stopPropagation()}
-            style={linkStyle('var(--accent2)', 'transparent')}
-          >
-            PRD ↗
-          </a>
-        )}
-        {feature.jira && (
-          <a
-            href={feature.jira}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={e => e.stopPropagation()}
-            style={linkStyle('var(--accent2)', 'transparent')}
-          >
-            Jira ↗
-          </a>
-        )}
-      </div>
-
-      {/* Version chip */}
-      {feature.version && (
+      {/* Outer wrapper captures hover — overlay lives inside so mouse never leaves */}
+      <div
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onClick={() => setShowInfo(true)}
+        style={{ position: 'relative', cursor: 'pointer' }}
+      >
+        {/* Card content */}
         <div style={{
-          fontFamily: 'var(--mono)', fontSize: 10,
-          color: 'var(--amber)',
-          background: '#f5a62315',
-          border: '1px solid #f5a62330',
-          padding: '1px 6px', borderRadius: 3,
-          marginTop: 3, display: 'inline-block',
+          background: 'var(--surface)',
+          border: `1px solid ${hovered ? 'var(--border2)' : 'var(--border)'}`,
+          borderRadius: 4,
+          padding: '6px 8px',
+          transition: 'border-color 0.15s',
         }}>
-          {feature.version}
-        </div>
-      )}
+          <div style={{ fontSize: 11.5, fontWeight: 650, color: 'var(--text)', lineHeight: 1.25, marginBottom: 3 }}>
+            {feature.name}
+          </div>
 
-      {/* Active range label */}
-      {rangeLabel && (
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text2)', marginTop: 3, lineHeight: 1.35 }}>
-          {rangeLabel}
-        </div>
-      )}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+            {feature.prd && (
+              <a
+                href={feature.prd}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()}
+                style={linkStyle}
+              >
+                PRD ↗
+              </a>
+            )}
+            {feature.jira && (
+              <a
+                href={feature.jira}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()}
+                style={linkStyle}
+              >
+                Jira ↗
+              </a>
+            )}
+          </div>
 
-      {/* Hover actions */}
-      {hovered && (
-        <div
-          onClick={e => e.stopPropagation()}
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 4,
-            marginTop: 6,
-            width: '100%',
-          }}
-        >
-          {curIdx > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onMove(feature.id, -1)}
-              style={{ width: '100%', justifyContent: 'center' }}
-            >
-              ← back
-            </Button>
+          {feature.version && (
+            <div style={{
+              fontFamily: 'var(--mono)', fontSize: 10,
+              color: 'var(--amber)',
+              background: '#f5a62315',
+              border: '1px solid #f5a62330',
+              padding: '1px 6px', borderRadius: 3,
+              marginTop: 3, display: 'inline-block',
+            }}>
+              {feature.version}
+            </div>
           )}
-          {curIdx < STAGES.length - 1 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onMove(feature.id, 1)}
-              style={{ width: '100%', justifyContent: 'center' }}
-            >
-              next →
-            </Button>
+
+          {rangeLabel && (
+            <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text2)', marginTop: 3, lineHeight: 1.35 }}>
+              {rangeLabel}
+            </div>
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onArchive?.(feature.id, !archived)}
-            style={{ width: '100%', justifyContent: 'center' }}
+        </div>
+
+        {/* Semi-transparent overlay with action buttons — inside wrapper, no mouseLeave gap */}
+        {hovered && (
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              borderRadius: 4,
+              background: 'rgba(0,0,0,0.78)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              zIndex: 10,
+            }}
           >
-            {archived ? 'Unarchive' : 'Archive'}
-          </Button>
-        </div>
-      )}
-    </div>
+            <button
+              onClick={() => setConfirm('archive')}
+              title={archived ? 'Unarchive' : 'Archive'}
+              style={actionBtn(false)}
+            >
+              <FolderIcon size={12} />
+            </button>
+            <button
+              onClick={() => setConfirm('delete')}
+              title="Delete"
+              style={actionBtn(true)}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+      </div>
+    </>
   )
 }
 
-function linkStyle(color, borderColor) {
+function actionBtn(isDanger) {
   return {
-    fontFamily: 'var(--mono)', fontSize: 10,
-    color, border: `1px solid ${borderColor}`,
-    padding: '0px 0px', borderRadius: 0,
-    textDecoration: 'none', display: 'inline-block',
-    transition: 'background 0.12s',
+    background: 'var(--bg)',
+    border: `1px solid ${isDanger ? '#c23a3a55' : 'var(--border2)'}`,
+    borderRadius: 4,
+    color: isDanger ? 'var(--red)' : 'var(--text2)',
+    fontSize: 11,
+    fontWeight: 700,
+    cursor: 'pointer',
+    padding: '5px 10px',
+    lineHeight: 1,
+    fontFamily: 'var(--mono)',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
   }
+}
+
+const linkStyle = {
+  fontFamily: 'var(--mono)', fontSize: 10,
+  color: 'var(--accent2)',
+  textDecoration: 'none', display: 'inline-block',
 }
