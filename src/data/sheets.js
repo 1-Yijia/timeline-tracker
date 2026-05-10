@@ -181,7 +181,10 @@ async function fetchArchivedFromGAS() {
 
 // ── Main sync entry point ─────────────────────────────────────────
 export async function initFromSheets() {
-  // 1. Write any pending local actions to the sheet first
+  // 1. Auto-assign IDs to any new rows the user left blank (best-effort)
+  try { await gasCall('fillMissingIds') } catch {}
+
+  // 2. Write any pending local actions to the sheet first
   await processPendingQueue()
 
   // 2. Read active features from Main tab (public CSV)

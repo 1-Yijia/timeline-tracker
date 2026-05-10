@@ -11,6 +11,16 @@ const STAGE_COL_MAX = 140
 const EXTRA_STAGES = ['live-testing', 'greyscale']
 const BOARD_STAGES = STAGES.filter(s => !EXTRA_STAGES.includes(s))
 
+function computeSpans(rowList) {
+  const ps = {}, ms = {}
+  rowList.forEach(row => {
+    ps[row.product] = (ps[row.product] || 0) + 1
+    const mk = `${row.product}||${row.market}`
+    ms[mk] = (ms[mk] || 0) + 1
+  })
+  return { productSpans: ps, marketSpans: ms }
+}
+
 export default function App() {
   const {
     rows, features, today,
@@ -54,17 +64,6 @@ export default function App() {
     })
   }, [rows])
 
-  // Rowspan counts: how many consecutive rows share the same product / product+market
-  const { productSpans, marketSpans } = useMemo(() => {
-    const ps = {}, ms = {}
-    sortedRows.forEach(row => {
-      ps[row.product] = (ps[row.product] || 0) + 1
-      const mk = `${row.product}||${row.market}`
-      ms[mk] = (ms[mk] || 0) + 1
-    })
-    return { productSpans: ps, marketSpans: ms }
-  }, [sortedRows])
-
   function featuresAtView(product, market, stage) {
     return features.filter(f =>
       f.product === product &&
@@ -74,9 +73,23 @@ export default function App() {
     )
   }
 
-  const hasPostLiveFeatures = features.some(f =>
-    !f.archived && ['live-testing', 'greyscale'].includes(computeDisplayStage(f, today))
-  )
+  function rowHasFeatureIn(row, stages) {
+    return stages.some(stage => featuresAtView(row.product, row.market, stage).length > 0)
+  }
+
+  // Main board: only rows that have at least one feature in a board stage
+  const boardRows = useMemo(() =>
+    sortedRows.filter(row => rowHasFeatureIn(row, BOARD_STAGES))
+  , [sortedRows, features, today]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const boardSpans = useMemo(() => computeSpans(boardRows), [boardRows])
+
+  // Post-live: only rows that have at least one feature in live-testing or greyscale
+  const postLiveRows = useMemo(() =>
+    sortedRows.filter(row => rowHasFeatureIn(row, EXTRA_STAGES))
+  , [sortedRows, features, today]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const postLiveSpans = useMemo(() => computeSpans(postLiveRows), [postLiveRows])
 
   return (
     <div style={{ height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -203,21 +216,21 @@ export default function App() {
             </thead>
 
             <tbody>
-              {sortedRows.map((row, ri) => {
-                const prev = sortedRows[ri - 1]
+              {boardRows.map((row, ri) => {
+                const prev = boardRows[ri - 1]
                 const isFirstProduct = !prev || prev.product !== row.product
                 const isFirstMarket  = !prev || prev.product !== row.product || prev.market !== row.market
                 return (
                   <tr key={`${row.product}-${row.market}-${ri}`}>
                     {isFirstProduct && (
-                      <td rowSpan={productSpans[row.product]} style={{ ...tdLabel, left: 0, zIndex: 40, background: 'var(--surface2)', borderRight: '1px solid var(--border)' }}>
+                      <td rowSpan={boardSpans.productSpans[row.product]} style={{ ...tdLabel, left: 0, zIndex: 40, background: 'var(--surface2)', borderRight: '1px solid var(--border)' }}>
                         <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', lineHeight: 1.15 }}>
                           {row.product}
                         </span>
                       </td>
                     )}
                     {isFirstMarket && (
-                      <td rowSpan={marketSpans[`${row.product}||${row.market}`]} style={{ ...tdLabel, left: COL_PRODUCT, zIndex: 40, background: 'var(--surface2)', borderRight: '1px solid var(--border2)' }}>
+                      <td rowSpan={boardSpans.marketSpans[`${row.product}||${row.market}`]} style={{ ...tdLabel, left: COL_PRODUCT, zIndex: 40, background: 'var(--surface2)', borderRight: '1px solid var(--border2)' }}>
                         <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)', lineHeight: 1.15 }}>
                           {row.market}
                         </span>
@@ -247,8 +260,8 @@ export default function App() {
             </tbody>
           </table>
 
-        {/* Post-live stages — only shown when at least one feature is in live-testing or greyscale */}
-        {hasPostLiveFeatures && <div style={{ padding: '12px 0 0' }}>
+        {/* Post-live stages — only shown when at least one row has a feature in live-testing or greyscale */}
+        {postLiveRows.length > 0 && <div style={{ padding: '12px 0 0' }}>
           <div style={{
             padding: '0 0 8px',
             fontFamily: 'var(--mono)',
@@ -276,17 +289,25 @@ export default function App() {
               </tr>
             </thead>
             <tbody>
-              {sortedRows.map((row, ri) => {
-                const prev = sortedRows[ri - 1]
+              {postLiveRows.map((row, ri) => {
+                const prev = postLiveRows[ri - 1]
                 const isFirstProduct = !prev || prev.product !== row.product
                 const isFirstMarket  = !prev || prev.product !== row.product || prev.market !== row.market
                 return (
                   <tr key={`post-${row.product}-${row.market}-${ri}`}>
                     {isFirstProduct && (
-                      <td rowSpan={productSpans[row.product]} style={{ ...tdLabel, left: 0, zIndex: 40, background: 'var(--surface2)', borderRight: '1px solid var(--border)' }} />
+                      <td rowSpan={postLiveSpans.productSpans[row.product]} style={{ ...tdLabel, left: 0, zIndex: 40, background: 'var(--surface2)', borderRight: '1px solid var(--border)' }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', lineHeight: 1.15 }}>
+                          {row.product}
+                        </span>
+                      </td>
                     )}
                     {isFirstMarket && (
-                      <td rowSpan={marketSpans[`${row.product}||${row.market}`]} style={{ ...tdLabel, left: COL_PRODUCT, zIndex: 40, background: 'var(--surface2)', borderRight: '1px solid var(--border2)' }} />
+                      <td rowSpan={postLiveSpans.marketSpans[`${row.product}||${row.market}`]} style={{ ...tdLabel, left: COL_PRODUCT, zIndex: 40, background: 'var(--surface2)', borderRight: '1px solid var(--border2)' }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)', lineHeight: 1.15 }}>
+                          {row.market}
+                        </span>
+                      </td>
                     )}
                     {EXTRA_STAGES.map(stage => {
                       const cellFeatures = featuresAtView(row.product, row.market, stage)
