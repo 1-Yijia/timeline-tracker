@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { STAGES, STAGE_LABELS } from './data/constants'
 import { useTimeline, computeDisplayStage } from './hooks/useTimeline'
 import { FeatureCard } from './components/FeatureCard'
@@ -16,6 +16,7 @@ export default function App() {
     rows, features, today,
     deleteFeature, setArchived,
     loading, syncError, lastSyncedAt, syncFromSheets,
+    hasPendingChanges,
   } = useTimeline()
 
   const [stageColWidth, setStageColWidth] = useState(STAGE_COL_MAX)
@@ -40,18 +41,42 @@ export default function App() {
     weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
   })
 
-  // Track which product we last rendered for visual grouping
-  let lastProduct = null
   const showArchived = activeTab === 'archived'
+
+  // Sort rows so same products are contiguous (preserving first-seen product order)
+  const sortedRows = useMemo(() => {
+    const productOrder = []
+    rows.forEach(r => { if (!productOrder.includes(r.product)) productOrder.push(r.product) })
+    return [...rows].sort((a, b) => {
+      const pi = productOrder.indexOf(a.product) - productOrder.indexOf(b.product)
+      if (pi !== 0) return pi
+      return rows.indexOf(a) - rows.indexOf(b)
+    })
+  }, [rows])
+
+  // Rowspan counts: how many consecutive rows share the same product / product+market
+  const { productSpans, marketSpans } = useMemo(() => {
+    const ps = {}, ms = {}
+    sortedRows.forEach(row => {
+      ps[row.product] = (ps[row.product] || 0) + 1
+      const mk = `${row.product}||${row.market}`
+      ms[mk] = (ms[mk] || 0) + 1
+    })
+    return { productSpans: ps, marketSpans: ms }
+  }, [sortedRows])
 
   function featuresAtView(product, market, stage) {
     return features.filter(f =>
       f.product === product &&
       f.market === market &&
-      Boolean(f.archived) === showArchived &&
+      !f.archived &&
       computeDisplayStage(f, today) === stage
     )
   }
+
+  const hasPostLiveFeatures = features.some(f =>
+    !f.archived && ['live-testing', 'greyscale'].includes(computeDisplayStage(f, today))
+  )
 
   return (
     <div style={{ height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -94,9 +119,18 @@ export default function App() {
                 ? `Synced ${new Date(lastSyncedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`
                 : 'Local data'}
           </span>
-          <Button variant="ghost" size="sm" onClick={syncFromSheets} disabled={loading}>
-            {loading ? 'Syncing…' : 'Sync'}
-          </Button>
+          <div style={{ position: 'relative', display: 'inline-flex' }}>
+            <Button variant="ghost" size="sm" onClick={syncFromSheets} disabled={loading}>
+              {loading ? 'Syncing…' : 'Sync'}
+            </Button>
+            {hasPendingChanges && !loading && (
+              <span style={{
+                position: 'absolute', top: 1, right: 1,
+                width: 7, height: 7, borderRadius: '50%',
+                background: 'var(--red)', pointerEvents: 'none',
+              }} />
+            )}
+          </div>
           <Button
             variant={activeTab === 'archived' ? 'primary' : 'ghost'}
             size="sm"
@@ -127,9 +161,23 @@ export default function App() {
         </div>
       )}
 
+      {hasPendingChanges && !syncError && (
+        <div style={{
+          background: '#f5a62318',
+          borderBottom: '1px solid #f5a62344',
+          padding: '6px 28px',
+          fontSize: 11,
+          color: 'var(--amber)',
+          fontFamily: 'var(--mono)',
+          flex: '0 0 auto',
+        }}>
+          Unsynced changes — sync before performing other actions.
+        </div>
+      )}
+
       {showArchived ? (
         <ArchiveView
-          features={features.filter(f => Boolean(f.archived))}
+          features={features.filter(f => f.archived || computeDisplayStage(f, today) === 'auto-archive')}
           query={archiveQuery}
           setQuery={setArchiveQuery}
           sortDir={archiveSort}
@@ -155,24 +203,26 @@ export default function App() {
             </thead>
 
             <tbody>
-              {rows.map((row, ri) => {
-                const showProduct = row.product !== lastProduct
-                lastProduct = row.product
-
+              {sortedRows.map((row, ri) => {
+                const prev = sortedRows[ri - 1]
+                const isFirstProduct = !prev || prev.product !== row.product
+                const isFirstMarket  = !prev || prev.product !== row.product || prev.market !== row.market
                 return (
                   <tr key={`${row.product}-${row.market}-${ri}`}>
-                    <td style={{ ...tdLabel, left: 0, zIndex: 40, background: 'var(--surface2)', borderRight: '1px solid var(--border)' }}>
-                      {showProduct && (
+                    {isFirstProduct && (
+                      <td rowSpan={productSpans[row.product]} style={{ ...tdLabel, left: 0, zIndex: 40, background: 'var(--surface2)', borderRight: '1px solid var(--border)' }}>
                         <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', lineHeight: 1.15 }}>
                           {row.product}
                         </span>
-                      )}
-                    </td>
-                    <td style={{ ...tdLabel, left: COL_PRODUCT, zIndex: 40, background: 'var(--surface2)', borderRight: '1px solid var(--border2)' }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)', lineHeight: 1.15 }}>
-                        {row.market}
-                      </span>
-                    </td>
+                      </td>
+                    )}
+                    {isFirstMarket && (
+                      <td rowSpan={marketSpans[`${row.product}||${row.market}`]} style={{ ...tdLabel, left: COL_PRODUCT, zIndex: 40, background: 'var(--surface2)', borderRight: '1px solid var(--border2)' }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)', lineHeight: 1.15 }}>
+                          {row.market}
+                        </span>
+                      </td>
+                    )}
                     {BOARD_STAGES.map(stage => {
                       const cellFeatures = featuresAtView(row.product, row.market, stage)
                       return (
@@ -197,8 +247,8 @@ export default function App() {
             </tbody>
           </table>
 
-        {/* Post-live stages (outside main window) */}
-        <div style={{ padding: '12px 0 0' }}>
+        {/* Post-live stages — only shown when at least one feature is in live-testing or greyscale */}
+        {hasPostLiveFeatures && <div style={{ padding: '12px 0 0' }}>
           <div style={{
             padding: '0 0 8px',
             fontFamily: 'var(--mono)',
@@ -226,33 +276,42 @@ export default function App() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, ri) => (
-                <tr key={`post-${row.product}-${row.market}-${ri}`}>
-                  <td style={{ ...tdLabel, left: 0, zIndex: 40, background: 'var(--surface2)', borderRight: '1px solid var(--border)' }} />
-                  <td style={{ ...tdLabel, left: COL_PRODUCT, zIndex: 40, background: 'var(--surface2)', borderRight: '1px solid var(--border2)' }} />
-                  {EXTRA_STAGES.map(stage => {
-                    const cellFeatures = featuresAtView(row.product, row.market, stage)
-                    return (
-                      <td key={stage} style={tdCell}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          {cellFeatures.map(f => (
-                            <FeatureCard
-                              key={f.id}
-                              feature={f}
-                              displayStage={computeDisplayStage(f, today)}
-                              onDelete={deleteFeature}
-                              onArchive={setArchived}
-                            />
-                          ))}
-                        </div>
-                      </td>
-                    )
-                  })}
-                </tr>
-              ))}
+              {sortedRows.map((row, ri) => {
+                const prev = sortedRows[ri - 1]
+                const isFirstProduct = !prev || prev.product !== row.product
+                const isFirstMarket  = !prev || prev.product !== row.product || prev.market !== row.market
+                return (
+                  <tr key={`post-${row.product}-${row.market}-${ri}`}>
+                    {isFirstProduct && (
+                      <td rowSpan={productSpans[row.product]} style={{ ...tdLabel, left: 0, zIndex: 40, background: 'var(--surface2)', borderRight: '1px solid var(--border)' }} />
+                    )}
+                    {isFirstMarket && (
+                      <td rowSpan={marketSpans[`${row.product}||${row.market}`]} style={{ ...tdLabel, left: COL_PRODUCT, zIndex: 40, background: 'var(--surface2)', borderRight: '1px solid var(--border2)' }} />
+                    )}
+                    {EXTRA_STAGES.map(stage => {
+                      const cellFeatures = featuresAtView(row.product, row.market, stage)
+                      return (
+                        <td key={stage} style={tdCell}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            {cellFeatures.map(f => (
+                              <FeatureCard
+                                key={f.id}
+                                feature={f}
+                                displayStage={computeDisplayStage(f, today)}
+                                onDelete={deleteFeature}
+                                onArchive={setArchived}
+                              />
+                            ))}
+                          </div>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
-        </div>
+        </div>}
         </div>
       )}
 

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { STAGES, DEFAULT_ROWS, DEFAULT_FEATURES } from '../data/constants'
-import { initFromSheets, recordSheetDeletion, recordArchive } from '../data/sheets'
+import { initFromSheets, enqueuePendingAction, hasPendingAction, getPendingCount } from '../data/sheets'
 
 const STORAGE_KEY = 'timeline-tracker-v3'
 const SYNC_TS_KEY = 'timeline-tracker-synced-at'
@@ -115,9 +115,9 @@ export function computeDisplayStage(feature, today) {
     if (today > range.start && STAGES.indexOf(derived) < STAGES.indexOf(s)) derived = s
   }
 
-  // If we only have earlier stages filled and we're already past the end of the last provided window,
-  // advance to the next timed stage (e.g. Dev ends → show Test) even if that next window isn't filled.
   if (lastProvidedStage && lastProvidedRange && today > lastProvidedRange.end) {
+    // Past live with no post-live stages → auto-archive (display-only, written to sheet on Sync)
+    if (lastProvidedStage === 'live') return 'auto-archive'
     const nextIdx = timedOrder.indexOf(lastProvidedStage) + 1
     const nextStage = timedOrder[nextIdx]
     if (nextStage) derived = nextStage
@@ -191,6 +191,15 @@ export function useTimeline() {
     syncFromSheets()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-enqueue features whose live date passed with no post-live timelines
+  useEffect(() => {
+    state.features.forEach(f => {
+      if (!f.archived && computeDisplayStage(f, today) === 'auto-archive') {
+        enqueuePendingAction(f.id, 'auto-archive')
+      }
+    })
+  }, [state.features]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
@@ -231,12 +240,14 @@ export function useTimeline() {
   }, [state, commit])
 
   const deleteFeature = useCallback((id) => {
-    recordSheetDeletion(id)
+    if (hasPendingAction(id)) return 'conflict'
+    enqueuePendingAction(id, 'delete')
     commit({ ...state, features: state.features.filter(f => f.id !== id) })
   }, [state, commit])
 
   const setArchived = useCallback((id, archived) => {
-    recordArchive(id, Boolean(archived))
+    if (hasPendingAction(id)) return 'conflict'
+    enqueuePendingAction(id, archived ? 'archive' : 'unarchive')
     commit({
       ...state,
       features: state.features.map(f => f.id === id ? { ...f, archived: Boolean(archived) } : f),
@@ -259,6 +270,9 @@ export function useTimeline() {
     commit({ ...state, rows: [...state.rows, { product, market }] })
   }, [state, commit])
 
+  const hasPendingChanges = getPendingCount() > 0 ||
+    state.features.some(f => !f.archived && computeDisplayStage(f, today) === 'auto-archive')
+
   return {
     rows: state.rows,
     features: state.features,
@@ -275,5 +289,6 @@ export function useTimeline() {
     syncError,
     lastSyncedAt,
     syncFromSheets,
+    hasPendingChanges,
   }
 }

@@ -1,13 +1,19 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { getActiveRangeLabel } from '../hooks/useTimeline'
+import { hasPendingAction } from '../data/sheets'
 import { ConfirmModal, InfoModal, FolderIcon } from './UI'
 
 export function FeatureCard({ feature, displayStage, onDelete, onArchive }) {
   const [hovered, setHovered] = useState(false)
   const [confirm, setConfirm] = useState(null) // null | 'delete' | 'archive'
   const [showInfo, setShowInfo] = useState(false)
+  const [showConflict, setShowConflict] = useState(false)
+  const leaveTimer = useRef(null)
   const rangeLabel = getActiveRangeLabel(feature, displayStage)
   const archived = Boolean(feature.archived)
+
+  const handleEnter = () => { clearTimeout(leaveTimer.current); setHovered(true) }
+  const handleLeave = () => { leaveTimer.current = setTimeout(() => setHovered(false), 80) }
 
   const confirmConfig = {
     delete: {
@@ -20,8 +26,8 @@ export function FeatureCard({ feature, displayStage, onDelete, onArchive }) {
     archive: {
       title: archived ? 'Unarchive feature?' : 'Archive feature?',
       message: archived
-        ? `"${feature.name}" will be moved back to the main board.`
-        : `"${feature.name}" will be hidden from the main board. You can restore it from the Archive view.`,
+        ? `"${feature.name}" will be moved back to Pipeline. All timeline data will need to be re-entered in the sheet.`
+        : `"${feature.name}" will be archived and all timeline data permanently removed. You can restore it to Pipeline from the Archive view, but timeline data cannot be recovered.`,
       confirmLabel: archived ? 'Unarchive' : 'Archive',
       confirmVariant: 'ghost',
       onConfirm: () => onArchive(feature.id, !archived),
@@ -46,49 +52,47 @@ export function FeatureCard({ feature, displayStage, onDelete, onArchive }) {
         onClose={() => setShowInfo(false)}
         message="Stage and timeline changes can only be made in the Google Sheet. Sync after updating."
       />
+      <InfoModal
+        open={showConflict}
+        onClose={() => setShowConflict(false)}
+        message="This feature has a pending action. Please sync before making further changes."
+      />
 
-      {/* Flex row: card content + action buttons side by side, all inside hover zone */}
+      {/* Card — full column width; buttons float absolutely to the right on hover */}
       <div
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
+        onMouseEnter={handleEnter}
+        onMouseLeave={handleLeave}
         onClick={() => setShowInfo(true)}
-        style={{ display: 'flex', alignItems: 'stretch', gap: 4, cursor: 'pointer' }}
+        style={{ position: 'relative', cursor: 'pointer' }}
       >
-        {/* Card content */}
         <div style={{
-          flex: 1,
           background: 'var(--surface)',
           border: `1px solid ${hovered ? 'var(--border2)' : 'var(--border)'}`,
           borderRadius: 4,
           padding: '6px 8px',
           transition: 'border-color 0.15s',
-          minWidth: 0,
         }}>
           <div style={{ fontSize: 11.5, fontWeight: 650, color: 'var(--text)', lineHeight: 1.25, marginBottom: 3 }}>
             {feature.name}
           </div>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+            {feature.frf && (
+              <a href={feature.frf} target="_blank" rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()} style={linkStyle}>
+                FRF
+              </a>
+            )}
             {feature.prd && (
-              <a
-                href={feature.prd}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={e => e.stopPropagation()}
-                style={linkStyle}
-              >
-                PRD ↗
+              <a href={feature.prd} target="_blank" rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()} style={linkStyle}>
+                PRD
               </a>
             )}
             {feature.jira && (
-              <a
-                href={feature.jira}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={e => e.stopPropagation()}
-                style={linkStyle}
-              >
-                Jira ↗
+              <a href={feature.jira} target="_blank" rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()} style={linkStyle}>
+                Jira
               </a>
             )}
           </div>
@@ -113,34 +117,39 @@ export function FeatureCard({ feature, displayStage, onDelete, onArchive }) {
           )}
         </div>
 
-        {/* Action buttons — flex sibling, inside hover zone so mouse can move to them without hiding */}
-        <div
-          onClick={e => e.stopPropagation()}
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
-            gap: 4,
-            visibility: hovered ? 'visible' : 'hidden',
-            width: 28,
-            flexShrink: 0,
-          }}
-        >
-          <button
-            onClick={() => setConfirm('archive')}
-            title={archived ? 'Unarchive' : 'Archive'}
-            style={actionBtn(false)}
+        {/* Buttons float to the right of the card; z-index lets them sit above adjacent cards */}
+        {hovered && (
+          <div
+            onClick={e => e.stopPropagation()}
+            onMouseEnter={handleEnter}
+            onMouseLeave={handleLeave}
+            style={{
+              position: 'absolute',
+              left: 'calc(100% + 4px)',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+              zIndex: 100,
+            }}
           >
-            <FolderIcon size={12} />
-          </button>
-          <button
-            onClick={() => setConfirm('delete')}
-            title="Delete"
-            style={actionBtn(true)}
-          >
-            ✕
-          </button>
-        </div>
+            <button
+              onClick={() => hasPendingAction(feature.id) ? setShowConflict(true) : setConfirm('archive')}
+              title={archived ? 'Unarchive' : 'Archive'}
+              style={actionBtn(false)}
+            >
+              <FolderIcon size={12} />
+            </button>
+            <button
+              onClick={() => hasPendingAction(feature.id) ? setShowConflict(true) : setConfirm('delete')}
+              title="Delete"
+              style={actionBtn(true)}
+            >
+              ✕
+            </button>
+          </div>
+        )}
       </div>
     </>
   )
